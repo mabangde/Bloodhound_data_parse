@@ -4,6 +4,7 @@ import re
 import csv
 import datetime
 
+
 ## 首字母大写转换
 def transform_string(s):
     if '@' in s:
@@ -11,6 +12,8 @@ def transform_string(s):
     else:
         s = s.strip()
     return s.capitalize()
+
+
 ## 时间转换函数
 def convert_timestamp_to_datetime(timestamp):
     try:
@@ -20,12 +23,14 @@ def convert_timestamp_to_datetime(timestamp):
     except Exception as e:
         return timestamp
 
+
 # 从文件中加载JSON数据并缓存到字典中
 def load_json_data(file_path):
     json_data = None
     with open(file_path, encoding='utf-8-sig') as f:
         json_data = json.loads(f.read())
     return json_data['data']
+
 
 def get_json_data(objlabel):
     objlabel = objlabel.lower()
@@ -53,15 +58,21 @@ def get_json_data(objlabel):
                 file_mapping['domain'] = os.path.join(json_file_path, file)
 
     # 检查请求的对象类型是否在文件映射中
-    if objlabel not in file_mapping:
-        raise ValueError(f"未找到对象类型为 '{objlabel}' 的文件")
+    if objlabel == 'foreignsecurityprincipal':
+        #print(f"[+] 不支持请求对象类型为 '{objlabel}' 的数据")
+        return None
+    elif objlabel not in file_mapping:
+        return None
+        #raise ValueError(f"未找到对象类型为 '{objlabel}' 的文件")
 
     # 从文件中加载JSON数据并缓存到字典中
     if objlabel not in get_json_data.cache:
         get_json_data.cache[objlabel] = load_json_data(file_mapping[objlabel])
     return get_json_data.cache[objlabel]
 
+
 get_json_data.cache = {}
+
 
 def obj_info(PrincipalObj):
     if PrincipalObj['PrincipalType'] != 'Base':
@@ -91,6 +102,11 @@ def obj_info(PrincipalObj):
             {'pattern': r'S-1-5-32-578$', 'name': 'Hyper-V Administrators', 'PrincipalType': 'Group'}
 
         ]
+        if PrincipalObj['PrincipalType'] == 'foreignsecurityprincipal':
+            sidinfo['name'] = PrincipalObj['PrincipalSID']
+            sidinfo['PrincipalType'] = 'foreignsecurityprincipal'
+            sidinfo['PrincipalSID'] = PrincipalObj['PrincipalSID']
+
         for wellknownsid in wellknownsids:
             if re.search(wellknownsid['pattern'], PrincipalObj['PrincipalSID']):
                 sidinfo['name'] = wellknownsid['name']
@@ -99,14 +115,21 @@ def obj_info(PrincipalObj):
                 break
 
         # 从缓存中读取JSON数据
-        for data in get_json_data(PrincipalObj['PrincipalType']):
-            if data["ObjectIdentifier"] == PrincipalObj['PrincipalSID']:
-                sidinfo['name'] = data['Properties']['name']
-                sidinfo['PrincipalSID'] = data["ObjectIdentifier"]
-                sidinfo['PrincipalType'] = PrincipalObj['PrincipalType']
-                break
+        if get_json_data(PrincipalObj['PrincipalType']):
+            for data in get_json_data(PrincipalObj['PrincipalType']):
+                if data["ObjectIdentifier"] == PrincipalObj['PrincipalSID']:
+                    try:
+                        sidinfo['name'] = data['Properties']['name']
+                        sidinfo['PrincipalSID'] = data["ObjectIdentifier"]
+                        sidinfo['PrincipalType'] = PrincipalObj['PrincipalType']
+                    except KeyError:
+                        return None
+                    except ValueError as e:
+                        #print(f"Warning：{e}")
+                        break
 
         return sidinfo
+
 
 # 写入文件
 def write_file(file_name, content):
@@ -124,7 +147,7 @@ def write_file(file_name, content):
     output_dir = os.path.join(os.getcwd(), output_dir)
     file_path = os.path.join(output_dir, file_name)
     print(f"[+] 写入文件: {file_path}")
-    #print(content)
+    # print(content)
     with open(file_path, mode='a', encoding='utf-8') as f:
         f.write(content + '\n')
 
@@ -216,7 +239,7 @@ def acl_audit(object_type):
 
     # 将日志内容写入文件
     write_file(log_file_name, log_content)
-    
+
 
 ## 获取计算机 'RegistrySessions', 'DcomUsers','RemoteDesktopUsers', 'LocalAdmins', 'PSRemoteUsers', 'Sessions', 'PrivilegedSessions' 等信息
 ## 获取计算机 'RegistrySessions', 'DcomUsers','RemoteDesktopUsers', 'LocalAdmins', 'PSRemoteUsers', 'Sessions', 'PrivilegedSessions' 等信息
@@ -274,15 +297,14 @@ def get_computer_sessions_info():
                             log_content += other_session_output
 
     write_file(log_file_name, log_content)
-                        
-                        
+
 
 ## 获取所有域用户列表并输出csv
 def get_domain_users():
     print("[+] 正在获取当前域所有用户信息...")
     object_type = "user"
     user_info_list = []
-    
+
     objects = get_json_data(object_type)
     ## 获取所有用户名
     for object in objects:
@@ -293,7 +315,7 @@ def get_domain_users():
                 'admincount': Properties['admincount'],
                 'description': Properties['description'],
                 'displayname': Properties['displayname'],
-                'distinguishedname':Properties['distinguishedname'],
+                'distinguishedname': Properties['distinguishedname'],
                 'PrimaryGroupSID': obj_info({
                     'PrincipalSID': object['PrimaryGroupSID'],
                     'PrincipalType': 'Group'
@@ -306,10 +328,10 @@ def get_domain_users():
             user_info_list.append(list(user_info.values()))
 
     # 写入CSV文件
-    
+
     file_name = 'domain_users.csv'
     header = list(user_info.keys())
-    write_csv(file_name, header,user_info_list,encoding= 'gbk')
+    write_csv(file_name, header, user_info_list, encoding='gbk')
 
 
 ## 获取所有组成员
@@ -317,6 +339,9 @@ def get_group_members():
     print("[+] 正在获取域所有组内成员...")
     groups = get_json_data("Group")
     group_csv_data = []  # 用于保存 group 的信息
+
+    # 新增：定义日志内容的字符串和分隔线
+    log_content = ""
 
     for group in groups:
         group_name = group.get("Properties", {}).get("name")
@@ -327,10 +352,24 @@ def get_group_members():
         if not members:
             continue
 
-        member_names = [obj_info({"PrincipalType": member["ObjectType"], "PrincipalSID": member["ObjectIdentifier"]}).get("name") for member in members]
+        # 新增：将分隔线添加到日志内容中
+        log_content += f"Group: {transform_string(group_name)} => Members:\n{'-' * 60}\n"
+
+        # 新增：将成员名称添加到列表中
+        member_names = [
+            obj_info({"PrincipalType": member["ObjectType"], "PrincipalSID": member["ObjectIdentifier"]}).get("name")
+            if obj_info({"PrincipalType": member["ObjectType"], "PrincipalSID": member["ObjectIdentifier"]}) is not None
+            else None
+            for member in members
+        ]
+
+        # 新增：忽略成员名称为 None 的成员
+        member_names = [member_name for member_name in member_names if member_name is not None]
 
         for member_name in member_names:
             group_csv_data.append({"group_name": group_name, "member_name": member_name})
+            # 新增：将成员名称添加到日志内容中
+            log_content += f"\t{member_name}\n"
 
     # 如果 group_csv_data 不为空，则将数据写入 CSV 文件
     if group_csv_data:
@@ -338,23 +377,85 @@ def get_group_members():
         header = ['group_name', 'member_name']
         write_csv(file_name, header, group_csv_data, encoding='gbk')
 
-        # 新增：定义要写入的文件名和内容
-        log_file_name = 'group_members.log'
+        # 新增：将内容写入文件
+        write_file('group_members.log', log_content)
+
+
+def get_computers():
+    log_file_name = 'computers.log'
+    log_content = ""
+
+    print("[+] 正在获取计算机信息...")
+
+    computers = get_json_data("Computer")
+    for i, computer in enumerate(computers, start=1):
+        properties = computer.get("Properties", {})
+        computer_name = properties.get("name")
+        log_content += "=" * 60 + '\n'
+        log_content += f"[{i}] Computer: {computer_name}" + '\n'
+
+        primary_group_sid = computer.get("PrimaryGroupSID")
+        if primary_group_sid:
+            group = obj_info({"PrincipalSID": primary_group_sid, "PrincipalType": "Group"})
+            log_content += f"\t Group: {group['name']}" + '\n'
+
+        operatingsystem = properties.get("operatingsystem")
+        if operatingsystem:
+            log_content += f"\t operatingsystem: {operatingsystem}" + '\n'
+
+        serviceprincipalnames = properties.get("serviceprincipalnames")
+        if len(serviceprincipalnames) > 1:
+            for spn in serviceprincipalnames:
+                log_content += f"\t SPN: {spn}" + '\n'
+
+    # 将日志内容写入文件
+    write_file(log_file_name, log_content)
+
+    # 打印输出结果
+    print("[+] 获取计算机信息完成！")
+
+
+def get_trusts():
+    print("[+] 正在获取域信任关系信息...")
+    domains = get_json_data("Domain")
+    trusts_data = []  # 用于保存域信任关系信息
+
+    for domain in domains:
+        domain_name = domain.get("Properties", {}).get("name")
+        if not domain_name:
+            continue
+
+        trusts = domain.get("Trusts", [])
+        if not trusts:
+            continue
+
+        for trust in trusts:
+            target_domain_name = trust.get("TargetDomainName")
+            if target_domain_name:
+                trusts_data.append({"source_domain": domain_name, "target_domain": target_domain_name})
+
+    # 如果 trusts_data 不为空，则将数据写入日志文件
+    if trusts_data:
+        log_file_name = 'domain_trusts.log'
         log_content = ""
 
-        for group in group_csv_data:
+        for trust in trusts_data:
             log_content += "=" * 60 + '\n'
-            log_content += f"Group: {transform_string(group['group_name'])} => Members:" + '\n'
-            log_content += f"\t{group['member_name']}" + '\n'
+            log_content += f"Source Domain: {trust['source_domain']} => Target Domain: {trust['target_domain']}\n"
 
         # 新增：将内容写入文件
         write_file(log_file_name, log_content)
-        
+
+
+
+
 if __name__ == '__main__':
-    
+
+    get_computers() # 所有计算机
+    get_trusts() # 域信任关系
     get_computer_sessions_info()  # 获取所有计算机登录session
-    get_domain_users() # 获取域内所有用户
-    get_group_members() # 获取所有组下面用户 
-    acls = ['domain','user','computer','group'] 
+    get_domain_users()  # 获取域内所有用户
+    get_group_members()  # 获取所有组下面用户
+    acls = ['domain', 'user', 'computer', 'group']
     for acl in acls:
-        acl_audit(object_type=acl)  
+        acl_audit(object_type=acl)
