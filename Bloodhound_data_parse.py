@@ -58,10 +58,8 @@ def get_json_data(objlabel):
                 file_mapping['domain'] = os.path.join(json_file_path, file)
 
     # 检查请求的对象类型是否在文件映射中
-    if objlabel == 'foreignsecurityprincipal':
-        #print(f"[+] 不支持请求对象类型为 '{objlabel}' 的数据")
-        return None
-    elif objlabel not in file_mapping:
+
+    if objlabel not in file_mapping:
         return None
         #raise ValueError(f"未找到对象类型为 '{objlabel}' 的文件")
 
@@ -75,7 +73,7 @@ get_json_data.cache = {}
 
 
 def obj_info(PrincipalObj):
-    if PrincipalObj['PrincipalType'] != 'Base':
+    if PrincipalObj['PrincipalType'] != 'Base' :
         sidinfo = {}
         '''
         预定义的安全主体（如 Administrators、Domain Admins 等）而设定的，这些安全主体的信息可以在代码加载 JSON 数据时就提前获取
@@ -102,10 +100,12 @@ def obj_info(PrincipalObj):
             {'pattern': r'S-1-5-32-578$', 'name': 'Hyper-V Administrators', 'PrincipalType': 'Group'}
 
         ]
+
         if PrincipalObj['PrincipalType'] == 'foreignsecurityprincipal':
             sidinfo['name'] = PrincipalObj['PrincipalSID']
             sidinfo['PrincipalType'] = 'foreignsecurityprincipal'
             sidinfo['PrincipalSID'] = PrincipalObj['PrincipalSID']
+
 
         for wellknownsid in wellknownsids:
             if re.search(wellknownsid['pattern'], PrincipalObj['PrincipalSID']):
